@@ -19,6 +19,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import numpy as np
 from classifier import VAEClassifier
+import os
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -76,7 +77,7 @@ def train_vae(model, loader, epochs=20, save_interval=10, save_path="vae_epoch_{
         # Save model every 'save_interval' epochs
         if (epoch + 1) % save_interval == 0:
             model_filename = save_path.format(epoch + 1)
-            torch.save(model.state_dict(), model_filename)
+            torch.save(model.state_dict(), os.path.join('models',model_filename))
             print(f"Model saved at {model_filename}")
 
 vae = VAE(img_channels=3, latent_dim=256).to(device)
@@ -169,7 +170,7 @@ def save_classifier(model, path):
         model: The VAEClassifier model to save
         path: Path where the model should be saved
     """
-    torch.save(model.state_dict(), path)
+    torch.save(model.state_dict(), os.path.join('models',path))
 
 # Train the classifier
 train_classifier(classifier, train_loader, val_loader, epochs=20)
