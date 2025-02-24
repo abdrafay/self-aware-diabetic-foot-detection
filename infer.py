@@ -1,3 +1,7 @@
+# warning remove code
+import warnings
+warnings.filterwarnings("ignore")
+
 import matplotlib.pyplot as plt
 import torchvision.utils as vutils
 
@@ -44,7 +48,7 @@ def infer(image_path):
         # Classify using VAE features
         logits = classifier(image)  # Get class scores
         # probabilities = torch.sigmoid(logits)  # Convert to probabilities
-        probabilities = torch.sigmoid(logits)  # Already applied
+        probabilities = torch.softmax(logits, dim=1)  # Already applied
         formatted_probs = [f"{p*100:.2f}%" for p in probabilities[0]]
         print("Confidence Scores:", formatted_probs)
 
@@ -57,16 +61,13 @@ def compute_reconstruction_error(original, reconstructed):
     Measures the difference between original and VAE-reconstructed image.
     If error is high, image is an anomaly.
     """
+    # Ensure both tensors are on the same device
+    device = original.device  # Get the device of the original tensor
+    reconstructed = reconstructed.to(device)  # Move reconstructed to the same device
+
     return F.mse_loss(original, reconstructed).item()
 
-# Example usage
-original = torch.rand((1, 3, 128, 128))  # Dummy image tensor
-reconstructed = torch.rand((1, 3, 128, 128))  # Dummy reconstructed tensor
-
-error = compute_reconstruction_error(original, reconstructed)
-print("Reconstruction Error:", error)
-
-def self_aware_module(image, probs, original, reconstructed):
+def self_aware_module(probs, original, reconstructed, recon_threshold=0.1):
     """
     Main self-awareness logic:
     1. Check classifier uncertainty (entropy)
@@ -76,14 +77,18 @@ def self_aware_module(image, probs, original, reconstructed):
     uncertainty = is_uncertain(probs)
     recon_error = compute_reconstruction_error(original, reconstructed)
 
-    if uncertainty or recon_error > 0.1:  # Adjust threshold
+    # Dynamically adjust reconstruction threshold
+    adaptive_threshold = recon_threshold * (1 + uncertainty * 0.5)  # Increase if uncertain
+
+    if uncertainty or recon_error > adaptive_threshold:
         print("⚠️ Uncertain or Anomalous! Sending for expert/self-learning.")
         return "Review Needed"
     else:
         print("✅ Confident Prediction! Using result.")
         return "Prediction Accepted"
 
-THRESHOLD = 0.8  # Adjust based on experiments
+
+THRESHOLD = 0.4  # Adjust based on experiments
 
 def compute_entropy(probs):
     """
@@ -101,64 +106,25 @@ def is_uncertain(probs):
     Checks if the prediction is uncertain.
     Returns: True if uncertain, False otherwise
     """
-    return compute_entropy(probs)
+    return compute_entropy(probs) > THRESHOLD
 
 
 # Example usage
-image_path = "dataset/Abnormal(Ulcer)/2.jpg"
+image_path = "Abga_standee.png"
 reconstructed_image, vae_features, confidence = infer(image_path)
+
+# find mse of reconstructed image
+original = Image.open(image_path).convert("RGB")
+original = transform(original).unsqueeze(0).to(device)
+recon_error = compute_reconstruction_error(original, reconstructed_image)
+
+
 # save the reconstructed image in reconsructed/ folder
-vutils.save_image(reconstructed_image, "reconstructed/2.jpg", normalize=True)
+vutils.save_image(reconstructed_image, "reconstructed/5.jpg", normalize=True)
 
 # Print results
-print("VAE Features:", vae_features)
-print("Confidence Scores:", confidence)
-
-# Test case
+print("Reconstruction Error:", recon_error)
 print("Is the model uncertain?", is_uncertain(confidence))
 
 # Example usage
-print(self_aware_module(image=None, probs=confidence, original=original, reconstructed=reconstructed))
-
-
-
-
-
-
-
-# def infer_anomaly(image_path, threshold=0.05):
-#     # Load and preprocess image
-#     image = Image.open(image_path).convert("RGB")
-#     image = transform(image).unsqueeze(0).to(device)  # Add batch dimension
-
-#     # Pass through VAE
-#     with torch.no_grad():
-#         reconstructed, mu, logvar = vae(image)
-#         latent_features = mu  # Use mean (mu) as the latent representation
-
-#         # Compute reconstruction loss (MSE or L1 Loss)
-#         recon_error = F.mse_loss(reconstructed, image)
-#         print(f"Reconstruction Error: {recon_error.item()}")
-
-#         # Classify using VAE features
-#         logits = classifier(image)
-#         probabilities = torch.sigmoid(logits)
-#         formatted_probs = [f"{p*100:.2f}%" for p in probabilities[0]]
-
-#         # Detect anomaly
-#         is_anomaly = recon_error.item() > threshold
-#         print("Anomaly Detected:", is_anomaly)
-
-#     return reconstructed.cpu(), latent_features.cpu(), formatted_probs, recon_error.item(), is_anomaly
-
-# # Example usage
-# image_path = "dataset/Abnormal(Ulcer)/2.jpg"
-# reconstructed_image, vae_features, confidence, recon_error, is_anomaly = infer_anomaly(image_path)
-
-# # Save the reconstructed image
-# vutils.save_image(reconstructed_image, "reconstructed/2.jpg", normalize=True)
-
-# print("VAE Features:", vae_features)
-# print("Confidence Scores:", confidence)
-# print("Reconstruction Error:", recon_error)
-# print("Anomaly Detected:", is_anomaly)
+self_aware_module(probs=confidence, original=original, reconstructed=reconstructed_image, recon_threshold=THRESHOLD)
