@@ -17,8 +17,8 @@ vae = VAE(img_channels=3, latent_dim=256).to(device)
 classifier = VAEClassifier(vae, latent_dim=256, num_classes=2).to(device)
 
 # Load model weights
-vae.load_state_dict(torch.load("vae_epoch_100.pth", map_location=device))
-classifier.load_state_dict(torch.load("classifier.pth", map_location=device))
+vae.load_state_dict(torch.load("models/vae_epoch_100.pth", map_location=device))
+classifier.load_state_dict(torch.load("models/classifier.pth", map_location=device))
 
 # Set models to evaluation mode
 vae.eval()
