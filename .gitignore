@@ -1,0 +1,5 @@
+.venv
+__pycache
+dataset
+reconstructed
+*.pth
