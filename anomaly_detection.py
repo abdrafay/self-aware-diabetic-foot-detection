@@ -95,7 +95,7 @@ def self_awareness_module(image, recon_error, confidence):
         subprocess.run(
             [
                 "python", "train.py",
-                "--vae_epochs", "0",
+                "--vae_epochs", "1",
                 "--classifier_epoch", "1",
                 "--batch_size", "128"
             ],

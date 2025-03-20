@@ -61,7 +61,7 @@ decision, calibrated_probs = anomaly_detection(logits, original, reconstructed)
 # Display final results
 formatted_probs = [f"{p*100:.2f}%" for p in calibrated_probs[0]]
 print("\nFinal Decision:", decision)
-print("Calibrated Confidence Scores:", formatted_probs)
+# print("Calibrated Confidence Scores:", formatted_probs)
 
 # save the reconstructed image in reconsructed/ folder
 vutils.save_image(reconstructed, "reconstructed/" + image_path.split("/")[-1], normalize=True)
