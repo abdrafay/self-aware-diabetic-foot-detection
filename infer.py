@@ -1,16 +1,14 @@
 import warnings
 warnings.filterwarnings("ignore")
 
-import matplotlib.pyplot as plt
-import torchvision.utils as vutils
-
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
 from model.vae import VAE
 import torch.nn.functional as F
 from model.classifier import VAEClassifier
-from anomaly_detection import anomaly_detection
+from self_aware_module import self_awareness
+from explainable_ai import xai_module
 
 # Load trained models
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -45,7 +43,7 @@ def infer(image_path):
 
     with torch.no_grad():
         # Get VAE outputs
-        reconstructed, mu, logvar = vae(image_tensor)
+        reconstructed, _, _ = vae(image_tensor)
         # Get classifier logits
         logits = classifier(image_tensor)
 
@@ -56,12 +54,14 @@ image_path = "dataset/img3-arch-support.jpg"
 original, reconstructed, logits = infer(image_path)
 
 # Run anomaly detection
-decision, calibrated_probs = anomaly_detection(logits, original, reconstructed)
+text, decision = self_awareness(logits, original, reconstructed)
+print("\nSelf-Aware Output:", text)
 
-# Display final results
-formatted_probs = [f"{p*100:.2f}%" for p in calibrated_probs[0]]
-print("\nFinal Decision:", decision)
-# print("Calibrated Confidence Scores:", formatted_probs)
+if decision:
+    # print final decision of classifier (ulcer or not) by calculating the from logits
+    probs = F.softmax(logits, dim=1)
+    _, predicted = torch.max(probs, 1)
+    predicted = predicted.item()
+    print(f"Final Decision: {'Ulcer' if predicted == 0 else 'Healthy Skin'}")
+    xai_module()
 
-# save the reconstructed image in reconsructed/ folder
-vutils.save_image(reconstructed, "reconstructed/" + image_path.split("/")[-1], normalize=True)

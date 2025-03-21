@@ -95,11 +95,11 @@ def trigger_training():
         logger.error("Error during training trigger:", e)
 
 # -----------------------------
-# Self Awareness Module
+# Incremental Learning Logic
 # -----------------------------
-def self_awareness_module(image, recon_error, confidence, is_ood):
+def incremental_learning(image, confidence, is_ood):
     """
-    Main self-awareness logic:
+    Incremental learning logic to handle the decision-making process.
     1. Check classifier uncertainty (entropy)
     2. Check if image is an anomaly (VAE reconstruction error)
     3. Decide next action
@@ -113,6 +113,8 @@ def self_awareness_module(image, recon_error, confidence, is_ood):
     Returns:
         None
     """
+    # TODO: Implement the logic to first take input from expert
+    
     abnormal_prob = confidence[0][0].item()  # probability of being abnormal
     normal_prob = confidence[0][1].item()    # probability of being normal
 
@@ -131,12 +133,12 @@ def self_awareness_module(image, recon_error, confidence, is_ood):
         logger.info("Out-of-distribution sample detected. Triggering retraining.")
         trigger_training()
     else:
-        logger.info("Misclassified known class. Logging for further review.")
+        logger.info("Misclassified known class.")
 
 # -----------------------------
-# Main Anomaly Detection Logic
+# Self Awareness Module
 # -----------------------------
-def anomaly_detection(model, logits, original, reconstructed, base_threshold=BASE_RECON_THRESHOLD, max_threshold=MAX_RECON_ERROR, 
+def self_awareness(model, logits, original, reconstructed, base_threshold=BASE_RECON_THRESHOLD, max_threshold=MAX_RECON_ERROR, 
 temperature=TEMPERATURE):
     """
     Combines classifier calibration, uncertainty estimation, and VAE reconstruction error.
@@ -158,7 +160,7 @@ temperature=TEMPERATURE):
     # Perform MC Dropout to estimate uncertainty
     mc_probs = mc_dropout(model, original)
     
-    # Check for classifier uncertainty (via entropy)
+    # Anomaly detection by checking uncertainty
     uncertain = is_uncertain(mc_probs)
     
     # Compute the VAE reconstruction error
@@ -174,14 +176,11 @@ temperature=TEMPERATURE):
     
     # Decision logic based on reconstruction error and uncertainty
     if recon_error >= max_threshold:
-        logger.info("❌ High reconstruction error (likely OOD). Discarding input.")
-        return "Discard", mc_probs
+        return "❌ High reconstruction error (likely OOD). Discarding input.", False
     elif adaptive_threshold < recon_error < max_threshold or uncertain:
-        logger.info("⚠️ Elevated reconstruction error or high uncertainty. Routing to further self-awareness module.")
         is_ood = recon_error >= max_threshold
-        self_awareness_module(original, recon_error, mc_probs, is_ood)
-        return "Review Needed", mc_probs
+        incremental_learning(original, mc_probs, is_ood)
+        return "⚠️ Elevated reconstruction error or high uncertainty. Review needed.", False
     else:
-        logger.info("✅ Prediction accepted based on low reconstruction error and low uncertainty.")
-        return "Prediction Accepted", mc_probs
+        return "✅ Prediction accepted based on low reconstruction error and low uncertainty.", True
 
