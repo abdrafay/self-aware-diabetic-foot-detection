@@ -7,6 +7,8 @@ import torchvision.utils as vutils
 import os
 import time
 import subprocess
+import logging
+from torch.utils.tensorboard import SummaryWriter
 
 # -----------------------------
 # Constants & Hyperparameters
@@ -15,6 +17,12 @@ BASE_RECON_THRESHOLD = 0.1    # Base threshold for reconstruction error
 MAX_RECON_ERROR    = 0.6      # If reconstruction error exceeds this, discard input
 ENTROPY_THRESHOLD  = 0.4      # Entropy value above which the classifier is considered uncertain
 TEMPERATURE        = 2.0      # Temperature for scaling logits (T > 1 softens the probabilities)
+MC_DROPOUT_ITER    = 10       # Number of iterations for MC Dropout
+
+# Initialize logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+writer = SummaryWriter()
 
 # -----------------------------
 # Utility Functions
@@ -37,27 +45,59 @@ def compute_entropy(probs):
     entropy = -np.sum(probs_np * np.log2(probs_np))
     return entropy
 
+def mc_dropout(model, inputs, iterations=MC_DROPOUT_ITER):
+    """
+    Perform Monte Carlo Dropout to estimate uncertainty.
+    """
+    model.train()  # Enable dropout
+    probs = []
+    with torch.no_grad():
+        for _ in range(iterations):
+            outputs = model(inputs)
+            probs.append(torch.softmax(outputs, dim=1))
+    probs = torch.stack(probs)
+    mean_probs = probs.mean(dim=0)
+    return mean_probs
+
 def is_uncertain(probs):
     """
     Determine if the classifier is uncertain based on entropy.
     """
     entropy = compute_entropy(probs)
-    print(f"Computed entropy: {entropy:.4f}")
+    logger.info(f"Computed entropy: {entropy:.4f}")
     return entropy > ENTROPY_THRESHOLD
 
-def calibrated_softmax(logits, temperature=TEMPERATURE):
-    """
-    Apply temperature scaling to the logits and then compute softmax.
-    This calibration helps to soften overconfident predictions.
-    """
-    scaled_logits = logits / temperature
-    return torch.softmax(scaled_logits, dim=1)
 
+def save_image(image, folder, save_id):
+    """
+    Save the image to the specified folder with the given ID.
+    """
+    image_save_path = os.path.join(folder, f"{save_id}.jpg")
+    vutils.save_image(image, image_save_path, normalize=True)
+    logger.info(f"Image saved in {folder}/{save_id}.jpg folder.")
+
+def trigger_training():
+    """
+    Trigger the training process by calling train.py with specific arguments.
+    """
+    try:
+        subprocess.run(
+            [
+                "python", "train.py",
+                "--vae_epochs", "1",
+                "--classifier_epoch", "1",
+                "--batch_size", "128"
+            ],
+            check=True
+        )
+        logger.info("Training triggered successfully.")
+    except subprocess.CalledProcessError as e:
+        logger.error("Error during training trigger:", e)
 
 # -----------------------------
 # Self Awareness Module
 # -----------------------------
-def self_awareness_module(image, recon_error, confidence):
+def self_awareness_module(image, recon_error, confidence, is_ood):
     """
     Main self-awareness logic:
     1. Check classifier uncertainty (entropy)
@@ -68,6 +108,7 @@ def self_awareness_module(image, recon_error, confidence):
         image_path : Path to the input image.
         recon_error: Reconstruction error from the VAE.
         confidence : Classifier confidence scores.
+        is_ood     : Boolean indicating if the sample is out-of-distribution.
 
     Returns:
         None
@@ -75,8 +116,8 @@ def self_awareness_module(image, recon_error, confidence):
     abnormal_prob = confidence[0][0].item()  # probability of being abnormal
     normal_prob = confidence[0][1].item()    # probability of being normal
 
-    print(f"Abnormal probability: {abnormal_prob:.4f}")
-    print(f"Normal probability: {normal_prob:.4f}")
+    logger.info(f"Abnormal probability: {abnormal_prob:.4f}")
+    logger.info(f"Normal probability: {normal_prob:.4f}")
 
     if abnormal_prob > normal_prob:
         folder = "dataset/Abnormal(Ulcer)"
@@ -84,37 +125,24 @@ def self_awareness_module(image, recon_error, confidence):
         folder = "dataset/Normal(Healthy skin)"
     
     save_id = int(time.time() * 1000)
-    image_save_path = os.path.join(folder, f"{save_id}.jpg")
+    save_image(image, folder, save_id)
 
-    vutils.save_image(image, image_save_path, normalize=True)
-    
-    print(f"Image saved in {folder}/{save_id}.jpg folder.")
-
-    try:
-        # Pass additional command-line arguments to train.py
-        subprocess.run(
-            [
-                "python", "train.py",
-                "--vae_epochs", "1",
-                "--classifier_epoch", "1",
-                "--batch_size", "128"
-            ],
-            check=True
-        )
-        print("Training triggered successfully.")
-    except subprocess.CalledProcessError as e:
-        print("Error during training trigger:", e)
-    
+    if is_ood:
+        logger.info("Out-of-distribution sample detected. Triggering retraining.")
+        trigger_training()
+    else:
+        logger.info("Misclassified known class. Logging for further review.")
 
 # -----------------------------
 # Main Anomaly Detection Logic
 # -----------------------------
-def anomaly_detection(logits, original, reconstructed, base_threshold=BASE_RECON_THRESHOLD, max_threshold=MAX_RECON_ERROR, 
+def anomaly_detection(model, logits, original, reconstructed, base_threshold=BASE_RECON_THRESHOLD, max_threshold=MAX_RECON_ERROR, 
 temperature=TEMPERATURE):
     """
     Combines classifier calibration, uncertainty estimation, and VAE reconstruction error.
     
     Parameters:
+        model          : Classifier model with dropout layers.
         logits         : Raw output from the classifier.
         original       : Original input image tensor.
         reconstructed  : Reconstructed image tensor from the VAE.
@@ -126,29 +154,34 @@ temperature=TEMPERATURE):
         decision       : One of "Discard", "Review Needed", or "Prediction Accepted".
         probs          : Calibrated probabilities after temperature scaling.
     """
-    # Calibrate the classifier predictions
-    probs = calibrated_softmax(logits, temperature)
+    
+    # Perform MC Dropout to estimate uncertainty
+    mc_probs = mc_dropout(model, original)
     
     # Check for classifier uncertainty (via entropy)
-    uncertain = is_uncertain(probs)
+    uncertain = is_uncertain(mc_probs)
     
     # Compute the VAE reconstruction error
     recon_error = compute_reconstruction_error(original, reconstructed)
     
-    # Adjust threshold based on classifier uncertainty
-    adaptive_threshold = base_threshold * (1 + (0.5 if uncertain else 0))
-    print(f"Adaptive threshold: {adaptive_threshold:.4f}")
-    print(f"Reconstruction error: {recon_error:.4f}")
+    # Compute statistics for adaptive thresholding
+    recon_errors = [recon_error]  # This should be a list of past errors
+    mean_error = np.mean(recon_errors)
+    std_error = np.std(recon_errors)
+    adaptive_threshold = mean_error + std_error
+    logger.info(f"Adaptive threshold: {adaptive_threshold:.4f}")
+    logger.info(f"Reconstruction error: {recon_error:.4f}")
     
-    # Decision logic based on reconstruction error
+    # Decision logic based on reconstruction error and uncertainty
     if recon_error >= max_threshold:
-        print("❌ High reconstruction error (likely OOD). Discarding input.")
-        return "Discard", probs
-    elif adaptive_threshold < recon_error < max_threshold:
-        print("⚠️ Elevated reconstruction error. Routing to further self-awareness module.")
-        self_awareness_module(original, recon_error, probs)
-        return "Review Needed", probs
+        logger.info("❌ High reconstruction error (likely OOD). Discarding input.")
+        return "Discard", mc_probs
+    elif adaptive_threshold < recon_error < max_threshold or uncertain:
+        logger.info("⚠️ Elevated reconstruction error or high uncertainty. Routing to further self-awareness module.")
+        is_ood = recon_error >= max_threshold
+        self_awareness_module(original, recon_error, mc_probs, is_ood)
+        return "Review Needed", mc_probs
     else:
-        print("✅ Prediction accepted based on low reconstruction error.")
-        return "Prediction Accepted", probs
-    
+        logger.info("✅ Prediction accepted based on low reconstruction error and low uncertainty.")
+        return "Prediction Accepted", mc_probs
+

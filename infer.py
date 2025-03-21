@@ -7,9 +7,9 @@ import torchvision.utils as vutils
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
-from vae import VAE
+from model.vae import VAE
 import torch.nn.functional as F
-from classifier import VAEClassifier
+from model.classifier import VAEClassifier
 from anomaly_detection import anomaly_detection
 
 # Load trained models

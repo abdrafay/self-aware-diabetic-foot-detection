@@ -6,20 +6,13 @@ import argparse
 import os
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
 from tqdm import tqdm
-import torchvision.models as models  
-from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 
-from vae import VAE, vae_loss
-from classifier import VAEClassifier
+from model.vae import VAE, vae_loss
+from model.classifier import VAEClassifier
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
