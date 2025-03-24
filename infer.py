@@ -9,6 +9,8 @@ import torch.nn.functional as F
 from model.classifier import VAEClassifier
 from self_aware_module import self_awareness
 from explainable_ai import xai_module
+import matplotlib.pyplot as plt
+import cv2
 
 # Load trained models
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,11 +59,24 @@ original, reconstructed, logits = infer(image_path)
 text, decision = self_awareness(logits, original, reconstructed)
 print("\nSelf-Aware Output:", text)
 
-if decision:
-    # print final decision of classifier (ulcer or not) by calculating the from logits
-    probs = F.softmax(logits, dim=1)
-    _, predicted = torch.max(probs, 1)
-    predicted = predicted.item()
-    print(f"Final Decision: {'Ulcer' if predicted == 0 else 'Healthy Skin'}")
-    xai_module()
-
+# if decision:
+#     # Calculate probabilities from logits
+#     probs = F.softmax(logits, dim=1)
+#     confidence, predicted = torch.max(probs, 1)
+#     predicted = predicted.item()
+#     confidence = confidence.item()
+#     classification_result = 'Ulcer' if predicted == 0 else 'Healthy Skin'
+    
+#     print(f"Final Decision: {classification_result} (Confidence: {confidence*100:.2f}%)")
+    
+#     # Generate explainable AI results
+#     xai_results = xai_module(original, classifier, classification_result, confidence)
+    
+#     # Display results
+#     print("\nXAI Report:")
+#     print("-" * 50)
+#     print(xai_results["report"])
+#     print("-" * 50)
+#     print("Visualization saved as 'xai_results.png'")
+# else:
+#     print("The model is uncertain about this image. Please consult a healthcare professional.")
